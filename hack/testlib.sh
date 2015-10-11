@@ -1,16 +1,17 @@
 #! /bin/bash
 
 # This testlib is for dev purposes. It reads like golang, deal with it :)
-k=${KUBECTL:-kubectl}
+K=${KUBECTL:-kubectl}
+GIT_ROOT=$(git rev-parse --show-cdup)
 
 # curlNodePort gets all NodePorts for all ports of Services matching label app=$app and curls 1 node's external ip.
 # Eg: `curlNodePort nginxsvc` will curl ip-of-first-node:nodePort-of-nginxsvc
 function curlNodePort {
-  port=`$k get svc -l app=$1 -o template --template='{{range $.items}}{{range .spec.ports}}{{.nodePort}} {{end}}{{end}}'`
-  node=`$k get nodes --template='{{range .items}}{{range .status.addresses}}{{if eq .type "ExternalIP"}}{{.address}} {{end}}{{end}}{{end}}' | awk '{print $1}'`
-  for p in $port; do
-      for n in $node; do
-          echo curling $n:$p
+  port=`"${K}" get svc -l app=$1 -o template --template='{{range $.items}}{{range .spec.ports}}{{.nodePort}} {{end}}{{end}}'`
+  node=`"${K}" get nodes --template='{{range .items}}{{range .status.addresses}}{{if eq .type "ExternalIP"}}{{.address}} {{end}}{{end}}{{end}}' | awk '{print $1}'`
+  for p in "${port}"; do
+      for n in "${node}"; do
+          echo curling "${n}":"${p}"
           # TODO: check return code, i.e curl -s -o /dev/null -w "%{http_code}"
           curl $n:$p
       done
@@ -35,10 +36,10 @@ function curlHTTPSWithHost {
 # but it'll do for now.
 function waitForPods {
     # TODO: Cut down on these hacks, we really need to count and wait for Running.
-    while [ `$k get pods -l app=$1 | wc -l` == "1" ]; do
+    while [ `"${K}" get pods -l app=$1 | wc -l` == "1" ]; do
         echo waiting for $1 pods to exist
     done
-    while [ `$k get pods -l app=$1 | grep -i "Terminating\|Pending" | wc -l` -ne "0" ]; do
+    while [ `"${K}" get pods -l app=$1 | grep -i "Terminating\|Pending" | wc -l` -ne "0" ]; do
         echo waiting for $1 pods to leave Pending
     done
     echo $1 pods no longer pending
@@ -48,13 +49,13 @@ function waitForPods {
 # Eg: `cleanup frontend` will delete all rc,svc,pods with label app=frontend.
 function cleanup {
     echo Cleaning up $1
-    $k delete rc,svc -l app=$1
+    "${K}" delete rc,svc -l app=$1
 }
 
 # checkCluster tries to retrieve cluster-info.
 # Eg: checkCluster will execute kubectl cluster-info and exist on non-zero return.
 function checkCluster {
-    $k cluster-info
+    "${K}" cluster-info
     if [ $? -ne 0 ]; then
         echo cluster is down
         exit 1
@@ -67,11 +68,23 @@ function checkCluster {
 # Will generate nginx{1,2,3}.crt,.key,.json file in cwd. It's upto the caller
 # to execute kubectl -f on the json file.
 function makeCerts {
-    for h in "${@}"; do
+    for h in ${@}; do
         if [ ! -f $h.json ] || [ ! -f $h.crt ] || [ ! -f $h.key ]; then
             printf "\nCreating new secrets for $h, will take ~30s\n\n"
-            make keys secret CERT=$h.crt KEY=$h.key HOST=$h SECRET=$h.json
-            $k create -f $h.json
+            local cert=$h.crt key=$h.key host=$h secret=$h.json
+
+            # Generate crt and key
+        	openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                    -keyout "${key}" -out "${cert}" -subj "/CN=${host}/O=${host}"
+
+            # Create secret.json
+            CGO_ENABLED=0 GOOS=linux godep go run -a -installsuffix cgo \
+                    -ldflags '-w' "${GIT_ROOT}"/hack/make_secret.go -crt "${cert}" -key "${key}" \
+                    -name "${host}" > "${host}".json
+
+            # Create secret with API Server
+            "${K}" create -f "${host}".json
+
         else
             echo WARNING: Secret for $h already found, make clean to remove
         fi
@@ -80,8 +93,8 @@ function makeCerts {
 
 # getNodeIPs echoes a list of node ips for all pods matching the label.
 function getNodeIPs {
-    nodes=`$k get pod -l name=$1 --template='{{range .items}}{{.spec.nodeName}} {{end}}'`
+    nodes=`"${K}" get pod -l name=$1 --template='{{range .items}}{{.spec.nodeName}} {{end}}'`
     for n in ${nodes[*]}; do
-        echo `$k get nodes $n --template='{{range .status.addresses}}{{if eq .type "ExternalIP"}}{{.address}} {{end}}{{end}}'`
+        echo `"${K}" get nodes $n --template='{{range .status.addresses}}{{if eq .type "ExternalIP"}}{{.address}} {{end}}{{end}}'`
     done
 }
