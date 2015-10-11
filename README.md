@@ -1,3 +1,3 @@
 # Ingress
 
-[![Build Status](https://travis-ci.org/bprashanth/Ingress.svg)]
+![Build Status](https://travis-ci.org/bprashanth/Ingress.svg)

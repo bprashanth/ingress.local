@@ -1,3 +1,0 @@
-verify:
-	# Placeholder
-	go get -t -v ./...
