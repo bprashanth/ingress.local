@@ -4,26 +4,44 @@
 
 set -e
 source ../../hack/testlib.sh
-app=${APP:-nginxsni}
-hosts=(nginx1 nginx2 nginx3)
-push=${PUSH:-false}
+# Name of the app in the .yaml
+APP=${APP:-nginxsni}
+# SNI hostnames
+HOSTS=(nginx1 nginx2 nginx3)
+# Should the test build and push the container via make push?
+PUSH=${PUSH:-false}
 
-cleanup nginxsni
-makeCerts ${hosts[*]}
-if $push; then
-    make push
-fi
+# setup set's up the environment for run
+function setup {
+    cleanup "${APP}"
+    makeCerts ${HOSTS[*]}
+    if "${PUSH}"; then
+        make push
+    fi
+    "${K}" create -f nginx-sni.yaml
+    waitForPods "${APP}"
+}
 
-${K} create -f nginx-sni.yaml
-waitForPods $app
+# run runs the test
+function run {
+    local frontendIP=`getNodeIPs frontend`
+    echo Frontend ip ${frontendIP[*]}
 
-frontendIP=`getNodeIPs frontend`
-echo Frontend ip ${frontendIP[*]}
-
-for h in ${hosts[*]}; do
-    for ip in ${frontendIP[*]}; do
-        curlHTTPSWithHost $h 8082 $ip $h.crt
+    set +e
+    for h in ${HOSTS[*]}; do
+        for ip in ${frontendIP[*]}; do
+            for i in 1 2 3 4 5; do
+                curlHTTPSWithHost "${h}" 8082 "${ip}" "${h}".crt
+                if [ $? == 0 ]; then
+                    break
+                else
+                    sleep 1
+                fi
+            done
+        done
     done
-done
+    set -e
+}
 
-
+setup
+run
