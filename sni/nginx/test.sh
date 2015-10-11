@@ -14,7 +14,7 @@ if $push; then
     make push
 fi
 
-$k create -f nginx-sni.yaml
+${K} create -f nginx-sni.yaml
 waitForPods $app
 
 frontendIP=`getNodeIPs frontend`
