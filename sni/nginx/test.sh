@@ -8,12 +8,12 @@ app=${APP:-nginxsni}
 hosts=(nginx1 nginx2 nginx3)
 push=${PUSH:-false}
 
+cleanup nginxsni
 makeCerts ${hosts[*]}
 if $push; then
     make push
 fi
 
-cleanup nginxsni
 $k create -f nginx-sni.yaml
 waitForPods $app
 

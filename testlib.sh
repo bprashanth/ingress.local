@@ -42,7 +42,6 @@ function waitForPods {
         echo waiting for $1 pods to leave Pending
     done
     echo $1 pods no longer pending
-    $k get pods -l app=$1
 }
 
 # cleanup deletes the app.
@@ -63,6 +62,10 @@ function checkCluster {
 }
 
 
+# makeCerts makes certificates applying the given hostnames as CNAMEs
+# Eg: makeCerts nginx1 nginx2 nginx3
+# Will generate nginx{1,2,3}.crt,.key,.json file in cwd. It's upto the caller
+# to execute kubectl -f on the json file.
 function makeCerts {
     for h in "${@}"; do
         if [ ! -f $h.json ] || [ ! -f $h.crt ] || [ ! -f $h.key ]; then
