@@ -379,6 +379,10 @@ func validateSource(source *api.VolumeSource) errs.ValidationErrorList {
 		numVolumes++
 		allErrs = append(allErrs, validateGlusterfs(source.Glusterfs).Prefix("glusterfs")...)
 	}
+	if source.Flocker != nil {
+		numVolumes++
+		allErrs = append(allErrs, validateFlocker(source.Flocker).Prefix("flocker")...)
+	}
 	if source.PersistentVolumeClaim != nil {
 		numVolumes++
 		allErrs = append(allErrs, validatePersistentClaimVolumeSource(source.PersistentVolumeClaim).Prefix("persistentVolumeClaim")...)
@@ -531,6 +535,17 @@ func validateGlusterfs(glusterfs *api.GlusterfsVolumeSource) errs.ValidationErro
 	return allErrs
 }
 
+func validateFlocker(flocker *api.FlockerVolumeSource) errs.ValidationErrorList {
+	allErrs := errs.ValidationErrorList{}
+	if flocker.DatasetName == "" {
+		allErrs = append(allErrs, errs.NewFieldRequired("datasetName"))
+	}
+	if strings.Contains(flocker.DatasetName, "/") {
+		allErrs = append(allErrs, errs.NewFieldInvalid("datasetName", flocker.DatasetName, "must not contain '/'"))
+	}
+	return allErrs
+}
+
 var validDownwardAPIFieldPathExpressions = sets.NewString("metadata.name", "metadata.namespace", "metadata.labels", "metadata.annotations")
 
 func validateDownwardAPIVolumeSource(downwardAPIVolume *api.DownwardAPIVolumeSource) errs.ValidationErrorList {
@@ -635,6 +650,10 @@ func ValidatePersistentVolume(pv *api.PersistentVolume) errs.ValidationErrorList
 	if pv.Spec.Glusterfs != nil {
 		numVolumes++
 		allErrs = append(allErrs, validateGlusterfs(pv.Spec.Glusterfs).Prefix("glusterfs")...)
+	}
+	if pv.Spec.Flocker != nil {
+		numVolumes++
+		allErrs = append(allErrs, validateFlocker(pv.Spec.Flocker).Prefix("flocker")...)
 	}
 	if pv.Spec.NFS != nil {
 		numVolumes++
@@ -1088,7 +1107,7 @@ func ValidatePodSpec(spec *api.PodSpec) errs.ValidationErrorList {
 	allErrs = append(allErrs, validateRestartPolicy(&spec.RestartPolicy).Prefix("restartPolicy")...)
 	allErrs = append(allErrs, validateDNSPolicy(&spec.DNSPolicy).Prefix("dnsPolicy")...)
 	allErrs = append(allErrs, ValidateLabels(spec.NodeSelector, "nodeSelector")...)
-	allErrs = append(allErrs, validateHostNetwork(spec.HostNetwork, spec.Containers).Prefix("hostNetwork")...)
+	allErrs = append(allErrs, ValidatePodSecurityContext(spec.SecurityContext, spec).Prefix("securityContext")...)
 	allErrs = append(allErrs, validateImagePullSecrets(spec.ImagePullSecrets).Prefix("imagePullSecrets")...)
 	if len(spec.ServiceAccountName) > 0 {
 		if ok, msg := ValidateServiceAccountName(spec.ServiceAccountName, false); !ok {
@@ -1101,6 +1120,17 @@ func ValidatePodSpec(spec *api.PodSpec) errs.ValidationErrorList {
 			allErrs = append(allErrs, errs.NewFieldInvalid("activeDeadlineSeconds", spec.ActiveDeadlineSeconds, "activeDeadlineSeconds must be a positive integer greater than 0"))
 		}
 	}
+	return allErrs
+}
+
+// ValidatePodSecurityContext test that the specified PodSecurityContext has valid data.
+func ValidatePodSecurityContext(securityContext *api.PodSecurityContext, spec *api.PodSpec) errs.ValidationErrorList {
+	allErrs := errs.ValidationErrorList{}
+
+	if securityContext != nil {
+		allErrs = append(allErrs, validateHostNetwork(securityContext.HostNetwork, spec.Containers).Prefix("hostNetwork")...)
+	}
+
 	return allErrs
 }
 
@@ -1319,6 +1349,15 @@ func ValidateReplicationControllerUpdate(oldController, controller *api.Replicat
 	allErrs := errs.ValidationErrorList{}
 	allErrs = append(allErrs, ValidateObjectMetaUpdate(&controller.ObjectMeta, &oldController.ObjectMeta).Prefix("metadata")...)
 	allErrs = append(allErrs, ValidateReplicationControllerSpec(&controller.Spec).Prefix("spec")...)
+	return allErrs
+}
+
+// ValidateReplicationControllerStatusUpdate tests if required fields in the replication controller are set.
+func ValidateReplicationControllerStatusUpdate(oldController, controller *api.ReplicationController) errs.ValidationErrorList {
+	allErrs := errs.ValidationErrorList{}
+	allErrs = append(allErrs, ValidateObjectMetaUpdate(&controller.ObjectMeta, &oldController.ObjectMeta).Prefix("metadata")...)
+	allErrs = append(allErrs, ValidatePositiveField(int64(controller.Status.Replicas), "status.replicas")...)
+	allErrs = append(allErrs, ValidatePositiveField(int64(controller.Status.ObservedGeneration), "status.observedGeneration")...)
 	return allErrs
 }
 
