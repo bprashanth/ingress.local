@@ -3,7 +3,7 @@
 # This test is for dev purposes. It reads like golang, deal with it.
 
 set -e
-source ../../testlib.sh
+source ../../hack/testlib.sh
 app=${APP:-nginxtest}
 
 echo $k

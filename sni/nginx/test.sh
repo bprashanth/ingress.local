@@ -3,7 +3,7 @@
 # This test is for dev purposes. It reads like golang, deal with it.
 
 set -e
-source ../../testlib.sh
+source ../../hack/testlib.sh
 app=${APP:-nginxsni}
 hosts=(nginx1 nginx2 nginx3)
 push=${PUSH:-false}
