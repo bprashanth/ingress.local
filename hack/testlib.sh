@@ -35,11 +35,11 @@ function curlHTTPSWithHost {
 # have left Terminating or Pending. This is obviously not the best way to do this
 # but it'll do for now.
 function waitForPods {
-    # TODO: Cut down on these hacks, we really need to count and wait for Running.
-    while [ `"${K}" get pods -l app=$1 | wc -l` == "1" ]; do
-        echo waiting for $1 pods to exist
+    # TODO: Count and wait for Running.
+    while [ `"${K}" get pods --template='{{range .items}}{{if .metadata.deletionTimestamp }}{{.metadata.name}}{{end}}{{end}}'` ]; do
+        echo waiting for $1 pods to leave Terminating
     done
-    while [ `"${K}" get pods -l app=$1 | grep -i "Terminating\|Pending" | wc -l` -ne "0" ]; do
+    while [ `"${K}" get pods --template='{{range .items}}{{if eq .status.phase "Pending" }}{{.metadata.name}}{{end}}{{end}}'` ]; do
         echo waiting for $1 pods to leave Pending
     done
     echo $1 pods no longer pending
@@ -91,9 +91,11 @@ function makeCerts {
     done
 }
 
-# getNodeIPs echoes a list of node ips for all pods matching the label.
+# getNodeIPs echoes a list of node ips for all pods matching the name=label.
+# $1 is the string used in the name= label of the pod.
+# Eg: getNodeIPs frontend will get all public node ips of pods with name=frontend.
 function getNodeIPs {
-    nodes=`"${K}" get pod -l name=$1 --template='{{range .items}}{{.spec.nodeName}} {{end}}'`
+    nodes=`"${K}" get pod -l name=$1 --template='{{range .items}}{{if eq .status.phase "Running"}}{{.spec.nodeName}} {{end}}{{end}}'`
     for n in ${nodes[*]}; do
         echo `"${K}" get nodes $n --template='{{range .status.addresses}}{{if eq .type "ExternalIP"}}{{.address}} {{end}}{{end}}'`
     done
