@@ -41,6 +41,7 @@ var (
 	crt  = flag.String("crt", "", "path to nginx certificates.")
 	key  = flag.String("key", "", "path to nginx private key.")
 	name = flag.String("name", "nginxsecret", "name of the secret.")
+	app  = flag.String("app", "unknown", "name of the app that will use the secret.")
 )
 
 func read(file string) []byte {
@@ -60,7 +61,8 @@ func main() {
 	nginxKey := read(*key)
 	secret := &api.Secret{
 		ObjectMeta: api.ObjectMeta{
-			Name: *name,
+			Name:   *name,
+			Labels: map[string]string{"app": *app},
 		},
 		Data: map[string][]byte{
 			"nginx.crt": nginxCrt,

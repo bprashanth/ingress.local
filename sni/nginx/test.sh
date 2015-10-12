@@ -14,7 +14,7 @@ PUSH=${PUSH:-false}
 # setup set's up the environment for run
 function setup {
     cleanup "${APP}"
-    makeCerts ${HOSTS[*]}
+    makeCerts ${APP} ${HOSTS[*]}
     if "${PUSH}"; then
         make push
     fi
@@ -41,6 +41,7 @@ function run {
         done
     done
     set -e
+    cleanup "${APP}"
 }
 
 setup
