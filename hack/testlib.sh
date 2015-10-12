@@ -49,7 +49,7 @@ function waitForPods {
 # Eg: `cleanup frontend` will delete all rc,svc,pods with label app=frontend.
 function cleanup {
     echo Cleaning up $1
-    "${K}" delete rc,svc -l app=$1
+    "${K}" delete rc,svc,secrets -l app=$1
 }
 
 # checkCluster tries to retrieve cluster-info.
@@ -64,10 +64,15 @@ function checkCluster {
 
 
 # makeCerts makes certificates applying the given hostnames as CNAMEs
-# Eg: makeCerts nginx1 nginx2 nginx3
+# $1 Name of the app that will use this secret, applied as a app= label
+# $2... hostnames as described below
+# Eg: makeCerts nginxsni nginx1 nginx2 nginx3
 # Will generate nginx{1,2,3}.crt,.key,.json file in cwd. It's upto the caller
-# to execute kubectl -f on the json file.
+# to execute kubectl -f on the json file. The secret will have a label of
+# app=nginxsni, so you can delete it via the cleanup function.
 function makeCerts {
+    local label=$1
+    shift
     for h in ${@}; do
         if [ ! -f $h.json ] || [ ! -f $h.crt ] || [ ! -f $h.key ]; then
             printf "\nCreating new secrets for $h, will take ~30s\n\n"
@@ -80,13 +85,14 @@ function makeCerts {
             # Create secret.json
             CGO_ENABLED=0 GOOS=linux godep go run -a -installsuffix cgo \
                     -ldflags '-w' "${GIT_ROOT}"/hack/make_secret.go -crt "${cert}" -key "${key}" \
-                    -name "${host}" > "${host}".json
+                    -name "${host}" -app "${label}" > "${host}".json
 
             # Create secret with API Server
             "${K}" create -f "${host}".json
 
         else
             echo WARNING: Secret for $h already found, make clean to remove
+            exit 1
         fi
     done
 }

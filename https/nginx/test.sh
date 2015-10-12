@@ -10,7 +10,7 @@ HOSTS=${HOST:-nginxhttps}
 
 function setup {
     cleanup "${APP}"
-    makeCerts ${HOSTS[*]}
+    makeCerts ${APP} ${HOSTS[*]}
     if "${PUSH}"; then
         make push
     fi
