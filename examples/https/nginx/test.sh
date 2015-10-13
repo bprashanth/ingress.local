@@ -3,10 +3,10 @@
 # This test is for dev purposes. It reads like golang, deal with it.
 
 set -e
-source ../../hack/testlib.sh
-APP=${APP:-haproxyhttps}
+source ../../../hack/testlib.sh
+APP=${APP:-nginxhttps}
 PUSH=${PUSH:-false}
-HOSTS=${HOST:-haproxyhttps}
+HOSTS=${HOST:-nginxhttps}
 
 function setup {
     cleanup "${APP}"
@@ -14,7 +14,7 @@ function setup {
     if "${PUSH}"; then
         make push
     fi
-    "${K}" create -f haproxy-https.yaml
+    "${K}" create -f nginx-https.yaml
     waitForPods "${APP}"
 }
 
@@ -24,9 +24,8 @@ function run {
 
     for h in ${HOSTS[*]}; do
         for ip in ${frontendIP[*]}; do
-            curlHTTPSWithHost $h 443 $ip $h.crt
-            # This will just redirect to https
-            # curlNodePort "${APP}"
+            curlHTTPSWithHost $h 8082 $ip $h.crt
+            curlNodePort "${APP}"
         done
     done
     cleanup "${APP}"
@@ -34,4 +33,3 @@ function run {
 
 setup
 run
-

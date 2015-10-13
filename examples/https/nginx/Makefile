@@ -10,6 +10,6 @@ push: container
 	docker push $(PREFIX):$(TAG)
 
 clean:
-	if [ -f *.key ]; then rm *.key; fi
-	if [ -f *.crt ]; then rm *.crt; fi
-	if [ -f *.json ]; then rm *.json; fi
+	if [ -f *.key ]; then rm -f *.key; fi
+	if [ -f *.crt ]; then rm -f *.crt; fi
+	if [ -f *.json ]; then rm -f *.json; fi
