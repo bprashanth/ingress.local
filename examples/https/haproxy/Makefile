@@ -14,7 +14,7 @@ push: container
 	docker push $(PREFIX):$(TAG)
 
 clean:
-	rm daemonizer
 	rm -f *.key
 	rm -f *.crt
 	rm -f *.json
+	rm -f daemonizer

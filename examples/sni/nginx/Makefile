@@ -10,6 +10,6 @@ push: container
 	docker push $(PREFIX):$(TAG)
 
 clean:
-	rm *.crt
-	rm *.key
-	rm *.json
+	rm -f *.crt
+	rm -f *.key
+	rm -f *.json

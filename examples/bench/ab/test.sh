@@ -3,7 +3,7 @@
 # This test is for dev purposes. It reads like golang, deal with it.
 
 set -e
-source ../../hack/testlib.sh
+source ../../../hack/testlib.sh
 APP=${APP:-nginxtest}
 
 function setup {
