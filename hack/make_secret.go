@@ -65,8 +65,8 @@ func main() {
 			Labels: map[string]string{"app": *app},
 		},
 		Data: map[string][]byte{
-			"nginx.crt": nginxCrt,
-			"nginx.key": nginxKey,
+			fmt.Sprintf("%v.crt", *app): nginxCrt,
+			fmt.Sprintf("%v.key", *app): nginxKey,
 		},
 	}
 	fmt.Printf(runtime.EncodeOrDie(latest.GroupOrDie("").Codec, secret))

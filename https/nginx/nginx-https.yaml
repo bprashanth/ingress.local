@@ -33,7 +33,7 @@ spec:
           secretName: nginxhttps
       containers:
       - name: nginxhttps
-        image: bprashanth/nginxhttps:1.0
+        image: bprashanth/nginxhttps:0.0
         ports:
         - containerPort: 443
           hostPort: 8082

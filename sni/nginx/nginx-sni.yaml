@@ -1,6 +1,6 @@
 # This app is made up of 1 frontend and 3 backends. Each backend has a Service
 # and a ReplicationController. The frontend doesn't need a Service since it's
-# using hostPort 443. All pods/services/rcs in this manifest have the label
+# using hostPort 8082. All pods/services/rcs in this manifest have the label
 # app=nginxsni in addition to the labels needed by the appropriate selector.
 
 # First backend
