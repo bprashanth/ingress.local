@@ -134,7 +134,7 @@ spec:
       volumes:
       - name: secret1
         secret:
-          secretName: nginx1
+          secretName: wildcard
       - name: secret2
         secret:
           secretName: nginx2
@@ -144,14 +144,14 @@ spec:
       containers:
       # Frontend nginx has all certs and terminates ssl.
       - name: frontend
-        image: bprashanth/nginxrouter:1.0
+        image: bprashanth/nginxrouter:0.0
         imagePullPolicy: Always
         ports:
         - containerPort: 443
           # Use Service instead of hostPort.
           hostPort: 8082
         volumeMounts:
-        - mountPath: /etc/nginx1/ssl
+        - mountPath: /etc/wildcard/ssl
           name: secret1
         - mountPath: /etc/nginx2/ssl
           name: secret2

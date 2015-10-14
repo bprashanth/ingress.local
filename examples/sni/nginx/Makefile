@@ -1,6 +1,6 @@
 all:
 
-TAG = 1.0
+TAG = 0.0
 PREFIX = bprashanth/nginxrouter
 
 container:

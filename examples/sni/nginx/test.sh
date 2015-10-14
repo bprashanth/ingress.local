@@ -3,11 +3,11 @@
 # This test is for dev purposes. It reads like golang, deal with it.
 
 set -e
-source ../../../../hack/testlib.sh
+source ../../../hack/testlib.sh
 # Name of the app in the .yaml
 APP=${APP:-nginxsni}
 # SNI hostnames
-HOSTS=(nginx1 nginx2 nginx3)
+HOSTS=(wildcard nginx2 nginx3)
 # Should the test build and push the container via make push?
 PUSH=${PUSH:-false}
 
@@ -31,7 +31,12 @@ function run {
     for h in ${HOSTS[*]}; do
         for ip in ${frontendIP[*]}; do
             for i in 1 2 3 4 5; do
-                curlHTTPSWithHost "${h}" 8082 "${ip}" "${h}".crt
+                cname=${h}
+                # TODO: Just convert everything to .com
+                if [ $cname == "wildcard" ]; then
+                    cname="foo.wildcard.com"
+                fi
+                curlHTTPSWithHost "${cname}" 8082 "${ip}" "${h}".crt
                 if [ $? == 0 ]; then
                     break
                 else
