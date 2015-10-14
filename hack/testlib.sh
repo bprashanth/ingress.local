@@ -76,11 +76,14 @@ function makeCerts {
     for h in ${@}; do
         if [ ! -f $h.json ] || [ ! -f $h.crt ] || [ ! -f $h.key ]; then
             printf "\nCreating new secrets for $h, will take ~30s\n\n"
-            local cert=$h.crt key=$h.key host=$h secret=$h.json
+            local cert=$h.crt key=$h.key host=$h secret=$h.json cname=$h
+            if [ $h == "wildcard" ]; then
+                cname=*.$h.com
+            fi
 
             # Generate crt and key
         	openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-                    -keyout "${key}" -out "${cert}" -subj "/CN=${host}/O=${host}"
+                    -keyout "${key}" -out "${cert}" -subj "/CN=${cname}/O=${cname}"
 
             # Create secret.json
             CGO_ENABLED=0 GOOS=linux godep go run -a -installsuffix cgo \
