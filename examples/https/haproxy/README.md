@@ -1,5 +1,7 @@
 Placeholder
 
+## Running haproxy
+
 Docker:
 ```shell
 $ cat haproxyhttps.crt haproxyhttps.key > haproxyhttps.key
