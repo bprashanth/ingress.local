@@ -18,17 +18,27 @@ package lib
 
 import (
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"strings"
 
+	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
+
+	// This installs the legacy v1 API
+	_ "k8s.io/kubernetes/pkg/api/install"
 )
 
 const receiversKey = "Ingress.receivers"
 
+// Receiver holds ssl/tls information for the Ingress.
 type Receiver struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
-	Cert string `json:"cert"`
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
+	Secret string `json:"secret"`
+	SSLDir string `json:"sslDir"`
 }
 
 type ingAnnotations map[string]string
@@ -38,14 +48,78 @@ func (i ingAnnotations) getReceivers() (string, bool) {
 	return s, ok
 }
 
-type AnnotatedReceivers struct {
+// ReceiverSecrets contains information about secrets in the filesystem.
+// One converts a Receiver to a ReceiverSecret by retrieving and writing the
+// corresponding Kubernetes secret to the ssldir as a .key/.crt file.
+type ReceiverSecrets struct {
+	Host    string
+	Port    int
+	KeyPath string
+	CrtPath string
+}
+
+// ReceiverClient manages receiver annotations.
+type ReceiverClient struct {
 	Client *client.Client
 }
 
-func (r *AnnotatedReceivers) Get(ingName, ingNamespace string) (rec []Receiver, err error) {
+// LoadSecrets loads all the secrets of the Ingress as .crt and .key files and returns a map of host to ReceiverSecrets.
+func (r *ReceiverClient) LoadSecrets(ing extensions.Ingress) (map[string]ReceiverSecrets, error) {
+	receiverSecrets := map[string]ReceiverSecrets{}
+	receivers := []Receiver{}
+
+	if jsonRec, ok := ingAnnotations(ing.Annotations).getReceivers(); ok {
+		if err := json.Unmarshal([]byte(jsonRec), &receivers); err != nil {
+			return receiverSecrets, err
+		}
+	}
+
+	for _, rcv := range receivers {
+		if err := os.MkdirAll(rcv.SSLDir, 0644); err != nil {
+			return receiverSecrets, err
+		}
+		secret, err := r.Client.Secrets(ing.Namespace).Get(rcv.Secret)
+		if err != nil {
+			return receiverSecrets, err
+		}
+		rs := ReceiverSecrets{Host: rcv.Host, Port: rcv.Port}
+		// TODO: Get rid of all this when the kubelet supports dynamic
+		// secret loading.
+		for k, v := range secret.Data {
+			parts := strings.Split(k, ".")
+			if len(parts) != 2 {
+				continue
+			}
+			ext := parts[1]
+			path := fmt.Sprintf("%v/%v.%v", rcv.SSLDir, parts[0], ext)
+			if ext == "crt" {
+				rs.CrtPath = path
+			} else if ext == "key" {
+				rs.KeyPath = path
+			} else {
+				continue
+			}
+			if _, err := os.Stat(path); err == nil {
+				glog.Infof("%v already exists, not overwriting", path)
+				continue
+			}
+			if err := ioutil.WriteFile(path, []byte(v), 0644); err != nil {
+				return receiverSecrets, err
+			}
+		}
+		if rs.KeyPath == "" || rs.CrtPath == "" {
+			return receiverSecrets, fmt.Errorf("%v only had one of key/crt path.", rcv.Secret)
+		}
+		receiverSecrets[rcv.Host] = rs
+	}
+	return receiverSecrets, nil
+}
+
+// Get returns the receiver annotations of an Ingress.
+func (r *ReceiverClient) Get(ingName, ingNamespace string) (rec []Receiver, err error) {
 	// Get the Ingress, lookup it's receivers from annotations and return a decoded list.
 	var ing *extensions.Ingress
-	ing, err = r.Client.Experimental().Ingress(ingNamespace).Get(ingName)
+	ing, err = r.Client.Extensions().Ingress(ingNamespace).Get(ingName)
 	if err != nil {
 		return
 	}
@@ -55,13 +129,14 @@ func (r *AnnotatedReceivers) Get(ingName, ingNamespace string) (rec []Receiver, 
 	return
 }
 
-func (r *AnnotatedReceivers) Update(ingName, ingNamespace string, rec Receiver) error {
+// Update updates receiver annotations on an Ingress.
+func (r *ReceiverClient) Update(ingName, ingNamespace string, rec Receiver) error {
 	// Get the Ingress, decode it's receivers, add new receiver, encode receiver list,
 	// update annotations. We could call GetReceivers but there's a condition where we might
 	// clobber during the update if we don't reuse this Ingress.
 	var ing *extensions.Ingress
 	var err error
-	ing, err = r.Client.Experimental().Ingress(ingNamespace).Get(ingName)
+	ing, err = r.Client.Extensions().Ingress(ingNamespace).Get(ingName)
 	if err != nil {
 		return err
 	}
@@ -86,7 +161,7 @@ func (r *AnnotatedReceivers) Update(ingName, ingNamespace string, rec Receiver) 
 		return err
 	}
 	ing.Annotations[receiversKey] = string(jsonReceivers)
-	if _, err := r.Client.Experimental().Ingress(ingNamespace).Update(ing); err != nil {
+	if _, err := r.Client.Extensions().Ingress(ingNamespace).Update(ing); err != nil {
 		return err
 	}
 	return nil

@@ -20,53 +20,18 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/bprashanth/Ingress/lib"
 	"text/template"
 )
 
-var (
-	conf = `
-events {
-  worker_connections {{.WorkerConnections}};
-}
-http {
-{{range $i, $svc := .Services}}
-  server {
-    listen {{$svc.Port}};
-    server_name {{$svc.Host}};
-    resolver 127.0.0.1;
-{{if $svc.Crt }}
-    ssl on;
-    ssl_certificate {{$svc.Crt}};
-    ssl_certificate_key {{$svc.Key}};
-{{end}}
-    location / {
-      proxy_pass https://{{$svc.Path}};
-    }
-  }{{end}}
-}`
-)
-
-type Update struct {
-	WorkerConnections int
-	Services          []Service
-}
-
-type Service struct {
-	Host string
-	Port int
-	Crt  string
-	Key  string
-	Path string
-}
-
 func ExampleTemplate() {
 	tp := template.New("test")
-	temp, _ := tp.Parse(conf)
-	update := Update{
+	temp, _ := tp.Parse(rawConf)
+	update := Conf{
 		WorkerConnections: 1024,
-		Services: []Service{
-			{Host: "_", Port: 443, Crt: "/etc/nginx/wildcard.crt", Key: "/etc/nginx/wildcard.key", Path: "catchall"},
-			{Host: "foo", Port: 80, Crt: "", Key: "/etc/nginx/foo.key", Path: "foosvc"},
+		Services: []*lib.Service{
+			{Host: "_", Port: 443, Crt: "/etc/nginx/wildcard.crt", Key: "/etc/nginx/wildcard.key", ClusterDNSName: "catchall"},
+			{Host: "foo", Port: 80, Crt: "", Key: "/etc/nginx/foo.key", ClusterDNSName: "foosvc"},
 		},
 	}
 	var b bytes.Buffer

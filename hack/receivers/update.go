@@ -31,15 +31,17 @@ import (
 var (
 	flags = flag.NewFlagSet("", flag.ContinueOnError)
 
-	host    = flags.String("host", "", "Hostname.")
-	port    = flags.Int("port", 0, "Port number.")
-	cert    = flags.String("cert", "", "Name of secret.")
+	host   = flags.String("host", "", "Hostname.")
+	port   = flags.Int("port", 0, "Port number.")
+	secret = flags.String("secret", "",
+		`Name of secret. This secret must contain a .crt and .key.`)
+	sslDir  = flags.String("sslDir", lib.defaultSSLDir, "Dir to put .crt and .key.")
 	ingress = flags.String("ing", "", "Namespace/Name of ingress.")
 )
 
 func main() {
 	flags.Parse(os.Args)
-	if *port == 0 || *cert == "" || *host == "" || *ingress == "" {
+	if *port == 0 || *secret == "" || *host == "" || *ingress == "" {
 		glog.Fatalf("Need more information to add receiver.")
 	}
 	fullName := strings.Split(*ingress, "/")
@@ -48,7 +50,7 @@ func main() {
 	}
 	ingName := fullName[1]
 	ingNamespace := fullName[0]
-	rec := lib.Receiver{Host: *host, Port: *port, Cert: *cert}
+	rec := lib.Receiver{Host: *host, Port: *port, Secret: *secret, SSLDir: *sslDir}
 
 	clientConfig := kubectl_util.DefaultClientConfig(flags)
 	config, err := clientConfig.ClientConfig()
@@ -60,7 +62,7 @@ func main() {
 		glog.Fatalf("error creating kube client %v", err)
 	}
 
-	ar := lib.AnnotatedReceivers{kubeClient}
+	ar := lib.ReceiverClient{kubeClient}
 	if err := ar.Update(ingName, ingNamespace, rec); err != nil {
 		glog.Fatalf("%v", err)
 	}
