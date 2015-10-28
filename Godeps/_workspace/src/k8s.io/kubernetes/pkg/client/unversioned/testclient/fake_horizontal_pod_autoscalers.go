@@ -72,11 +72,19 @@ func (c *FakeHorizontalPodAutoscalers) Update(a *extensions.HorizontalPodAutosca
 	return obj.(*extensions.HorizontalPodAutoscaler), err
 }
 
+func (c *FakeHorizontalPodAutoscalers) UpdateStatus(a *extensions.HorizontalPodAutoscaler) (*extensions.HorizontalPodAutoscaler, error) {
+	obj, err := c.Fake.Invokes(NewUpdateSubresourceAction("horizontalpodautoscalers", "status", c.Namespace, a), &extensions.HorizontalPodAutoscaler{})
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*extensions.HorizontalPodAutoscaler), err
+}
+
 func (c *FakeHorizontalPodAutoscalers) Delete(name string, options *api.DeleteOptions) error {
 	_, err := c.Fake.Invokes(NewDeleteAction("horizontalpodautoscalers", c.Namespace, name), &extensions.HorizontalPodAutoscaler{})
 	return err
 }
 
-func (c *FakeHorizontalPodAutoscalers) Watch(label labels.Selector, field fields.Selector, resourceVersion string) (watch.Interface, error) {
-	return c.Fake.InvokesWatch(NewWatchAction("horizontalpodautoscalers", c.Namespace, label, field, resourceVersion))
+func (c *FakeHorizontalPodAutoscalers) Watch(label labels.Selector, field fields.Selector, opts api.ListOptions) (watch.Interface, error) {
+	return c.Fake.InvokesWatch(NewWatchAction("horizontalpodautoscalers", c.Namespace, label, field, opts))
 }

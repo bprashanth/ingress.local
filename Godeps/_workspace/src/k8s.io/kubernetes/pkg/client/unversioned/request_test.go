@@ -18,7 +18,6 @@ package unversioned
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -147,13 +146,48 @@ func TestRequestSetTwiceError(t *testing.T) {
 
 func TestRequestParam(t *testing.T) {
 	r := (&Request{}).Param("foo", "a")
-	if !api.Semantic.DeepDerivative(r.params, url.Values{"foo": []string{"a"}}) {
+	if !reflect.DeepEqual(r.params, url.Values{"foo": []string{"a"}}) {
 		t.Errorf("should have set a param: %#v", r)
 	}
 
 	r.Param("bar", "1")
 	r.Param("bar", "2")
-	if !api.Semantic.DeepDerivative(r.params, url.Values{"foo": []string{"a"}, "bar": []string{"1", "2"}}) {
+	if !reflect.DeepEqual(r.params, url.Values{"foo": []string{"a"}, "bar": []string{"1", "2"}}) {
+		t.Errorf("should have set a param: %#v", r)
+	}
+}
+
+func TestRequestVersionedParams(t *testing.T) {
+	r := (&Request{apiVersion: "v1"}).Param("foo", "a")
+	if !reflect.DeepEqual(r.params, url.Values{"foo": []string{"a"}}) {
+		t.Errorf("should have set a param: %#v", r)
+	}
+	r.VersionedParams(&api.PodLogOptions{Follow: true, Container: "bar"}, api.Scheme)
+
+	if !reflect.DeepEqual(r.params, url.Values{
+		"foo":       []string{"a"},
+		"container": []string{"bar"},
+		"follow":    []string{"true"},
+	}) {
+		t.Errorf("should have set a param: %#v", r)
+	}
+}
+
+func TestRequestVersionedParamsFromListOptions(t *testing.T) {
+	r := &Request{apiVersion: "v1"}
+	r.VersionedParams(&api.ListOptions{ResourceVersion: "1"}, api.Scheme)
+	if !reflect.DeepEqual(r.params, url.Values{
+		"resourceVersion": []string{"1"},
+	}) {
+		t.Errorf("should have set a param: %#v", r)
+	}
+
+	var timeout int64 = 10
+	r.VersionedParams(&api.ListOptions{ResourceVersion: "2", TimeoutSeconds: &timeout}, api.Scheme)
+	if !reflect.DeepEqual(r.params, url.Values{
+		"resourceVersion": []string{"1", "2"},
+		"timeoutSeconds":  []string{"10"},
+	}) {
 		t.Errorf("should have set a param: %#v", r)
 	}
 }
@@ -165,7 +199,7 @@ func TestRequestURI(t *testing.T) {
 	if r.path != "/test" {
 		t.Errorf("path is wrong: %#v", r)
 	}
-	if !api.Semantic.DeepDerivative(r.params, url.Values{"a": []string{"b"}, "foo": []string{"b"}, "c": []string{"1", "2"}}) {
+	if !reflect.DeepEqual(r.params, url.Values{"a": []string{"b"}, "foo": []string{"b"}, "c": []string{"1", "2"}}) {
 		t.Errorf("should have set a param: %#v", r)
 	}
 }
@@ -595,88 +629,6 @@ func (f *fakeUpgradeRoundTripper) NewConnection(resp *http.Response) (httpstream
 	return f.conn, nil
 }
 
-func TestRequestUpgrade(t *testing.T) {
-	uri, _ := url.Parse("http://localhost/")
-	testCases := []struct {
-		Request          *Request
-		Config           *Config
-		RoundTripper     *fakeUpgradeRoundTripper
-		Err              bool
-		AuthBasicHeader  bool
-		AuthBearerHeader bool
-	}{
-		{
-			Request: &Request{err: errors.New("bail")},
-			Err:     true,
-		},
-		{
-			Request: &Request{},
-			Config: &Config{
-				TLSClientConfig: TLSClientConfig{
-					CAFile: "foo",
-				},
-				Insecure: true,
-			},
-			Err: true,
-		},
-		{
-			Request: &Request{},
-			Config: &Config{
-				Username:    "u",
-				Password:    "p",
-				BearerToken: "b",
-			},
-			Err: true,
-		},
-		{
-			Request: NewRequest(nil, "", uri, testapi.Default.Version(), testapi.Default.Codec()),
-			Config: &Config{
-				Username: "u",
-				Password: "p",
-			},
-			AuthBasicHeader: true,
-			Err:             false,
-		},
-		{
-			Request: NewRequest(nil, "", uri, testapi.Default.Version(), testapi.Default.Codec()),
-			Config: &Config{
-				BearerToken: "b",
-			},
-			AuthBearerHeader: true,
-			Err:              false,
-		},
-	}
-	for i, testCase := range testCases {
-		r := testCase.Request
-		rt := &fakeUpgradeRoundTripper{}
-		expectedConn := &fakeUpgradeConnection{}
-		conn, err := r.Upgrade(testCase.Config, func(config *tls.Config) httpstream.UpgradeRoundTripper {
-			rt.conn = expectedConn
-			return rt
-		})
-		_ = conn
-		hasErr := err != nil
-		if hasErr != testCase.Err {
-			t.Errorf("%d: expected %t, got %t: %v", i, testCase.Err, hasErr, r.err)
-		}
-		if testCase.Err {
-			continue
-		}
-
-		if testCase.AuthBasicHeader && !strings.Contains(rt.req.Header.Get("Authorization"), "Basic") {
-			t.Errorf("%d: expected basic auth header, got: %s", i, rt.req.Header.Get("Authorization"))
-		}
-
-		if testCase.AuthBearerHeader && !strings.Contains(rt.req.Header.Get("Authorization"), "Bearer") {
-			t.Errorf("%d: expected bearer auth header, got: %s", i, rt.req.Header.Get("Authorization"))
-		}
-
-		if e, a := expectedConn, conn; e != a {
-			t.Errorf("%d: conn: expected %#v, got %#v", i, e, a)
-		}
-	}
-}
-
 func TestRequestDo(t *testing.T) {
 	testCases := []struct {
 		Request *Request
@@ -844,7 +796,7 @@ func TestDoRequestNewWayReader(t *testing.T) {
 	}
 	tmpStr := string(reqBodyExpected)
 	requestURL := testapi.Default.ResourcePathWithPrefix("foo", "bar", "", "baz")
-	requestURL += "?" + api.LabelSelectorQueryParam(testapi.Default.Version()) + "=name%3Dfoo&timeout=1s"
+	requestURL += "?" + unversioned.LabelSelectorQueryParam(testapi.Default.Version()) + "=name%3Dfoo&timeout=1s"
 	fakeHandler.ValidateRequest(t, requestURL, "POST", &tmpStr)
 	if fakeHandler.RequestReceived.Header["Authorization"] == nil {
 		t.Errorf("Request is missing authorization header: %#v", *fakeHandler.RequestReceived)
@@ -886,7 +838,7 @@ func TestDoRequestNewWayObj(t *testing.T) {
 	}
 	tmpStr := string(reqBodyExpected)
 	requestURL := testapi.Default.ResourcePath("foo", "", "bar/baz")
-	requestURL += "?" + api.LabelSelectorQueryParam(testapi.Default.Version()) + "=name%3Dfoo&timeout=1s"
+	requestURL += "?" + unversioned.LabelSelectorQueryParam(testapi.Default.Version()) + "=name%3Dfoo&timeout=1s"
 	fakeHandler.ValidateRequest(t, requestURL, "POST", &tmpStr)
 	if fakeHandler.RequestReceived.Header["Authorization"] == nil {
 		t.Errorf("Request is missing authorization header: %#v", *fakeHandler.RequestReceived)
@@ -1101,6 +1053,9 @@ func TestUnacceptableParamNames(t *testing.T) {
 func TestBody(t *testing.T) {
 	const data = "test payload"
 
+	obj := &api.Pod{ObjectMeta: api.ObjectMeta{Name: "foo"}}
+	bodyExpected, _ := testapi.Default.Codec().Encode(obj)
+
 	f, err := ioutil.TempFile("", "test_body")
 	if err != nil {
 		t.Fatalf("TempFile error: %v", err)
@@ -1111,21 +1066,37 @@ func TestBody(t *testing.T) {
 	f.Close()
 
 	c := NewOrDie(&Config{})
-	tests := []interface{}{[]byte(data), f.Name(), strings.NewReader(data)}
+	tests := []struct {
+		input    interface{}
+		expected string
+		headers  map[string]string
+	}{
+		{[]byte(data), data, nil},
+		{f.Name(), data, nil},
+		{strings.NewReader(data), data, nil},
+		{obj, string(bodyExpected), map[string]string{"Content-Type": "application/json"}},
+	}
 	for i, tt := range tests {
-		r := c.Post().Body(tt)
+		r := c.Post().Body(tt.input)
 		if r.err != nil {
 			t.Errorf("%d: r.Body(%#v) error: %v", i, tt, r.err)
 			continue
 		}
-		buf := make([]byte, len(data))
+		buf := make([]byte, len(tt.expected))
 		if _, err := r.body.Read(buf); err != nil {
 			t.Errorf("%d: r.body.Read error: %v", i, err)
 			continue
 		}
 		body := string(buf)
-		if body != data {
-			t.Errorf("%d: r.body = %q; want %q", i, body, data)
+		if body != tt.expected {
+			t.Errorf("%d: r.body = %q; want %q", i, body, tt.expected)
+		}
+		if tt.headers != nil {
+			for k, v := range tt.headers {
+				if r.headers.Get(k) != v {
+					t.Errorf("%d: r.headers[%q] = %q; want %q", i, k, v, v)
+				}
+			}
 		}
 	}
 }

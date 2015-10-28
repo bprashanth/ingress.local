@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/util"
 	errors "k8s.io/kubernetes/pkg/util/fielderrors"
@@ -36,12 +35,25 @@ func TestValidateHorizontalPodAutoscaler(t *testing.T) {
 				Namespace: api.NamespaceDefault,
 			},
 			Spec: extensions.HorizontalPodAutoscalerSpec{
-				ScaleRef: &extensions.SubresourceReference{
+				ScaleRef: extensions.SubresourceReference{
 					Subresource: "scale",
 				},
-				MinReplicas: 1,
+				MinReplicas:    newInt(1),
+				MaxReplicas:    5,
+				CPUUtilization: &extensions.CPUTargetUtilization{TargetPercentage: 70},
+			},
+		},
+		{
+			ObjectMeta: api.ObjectMeta{
+				Name:      "myautoscaler",
+				Namespace: api.NamespaceDefault,
+			},
+			Spec: extensions.HorizontalPodAutoscalerSpec{
+				ScaleRef: extensions.SubresourceReference{
+					Subresource: "scale",
+				},
+				MinReplicas: newInt(1),
 				MaxReplicas: 5,
-				Target:      extensions.ResourceConsumption{Resource: api.ResourceCPU, Quantity: resource.MustParse("0.8")},
 			},
 		},
 	}
@@ -51,82 +63,67 @@ func TestValidateHorizontalPodAutoscaler(t *testing.T) {
 		}
 	}
 
-	errorCases := map[string]extensions.HorizontalPodAutoscaler{
-		"must be non-negative": {
-			ObjectMeta: api.ObjectMeta{
-				Name:      "myautoscaler",
-				Namespace: api.NamespaceDefault,
-			},
-			Spec: extensions.HorizontalPodAutoscalerSpec{
-				ScaleRef: &extensions.SubresourceReference{
-					Subresource: "scale",
+	errorCases := []struct {
+		horizontalPodAutoscaler extensions.HorizontalPodAutoscaler
+		msg                     string
+	}{
+		{
+			horizontalPodAutoscaler: extensions.HorizontalPodAutoscaler{
+				ObjectMeta: api.ObjectMeta{
+					Name:      "myautoscaler",
+					Namespace: api.NamespaceDefault,
 				},
-				MinReplicas: -1,
-				MaxReplicas: 5,
-				Target:      extensions.ResourceConsumption{Resource: api.ResourceCPU, Quantity: resource.MustParse("0.8")},
-			},
-		},
-		"must be bigger or equal to minReplicas": {
-			ObjectMeta: api.ObjectMeta{
-				Name:      "myautoscaler",
-				Namespace: api.NamespaceDefault,
-			},
-			Spec: extensions.HorizontalPodAutoscalerSpec{
-				ScaleRef: &extensions.SubresourceReference{
-					Subresource: "scale",
+				Spec: extensions.HorizontalPodAutoscalerSpec{
+					ScaleRef: extensions.SubresourceReference{
+						Subresource: "scale",
+					},
+					MinReplicas: newInt(-1),
+					MaxReplicas: 5,
 				},
-				MinReplicas: 7,
-				MaxReplicas: 5,
-				Target:      extensions.ResourceConsumption{Resource: api.ResourceCPU, Quantity: resource.MustParse("0.8")},
 			},
+			msg: "must be bigger or equal to 1",
 		},
-		"invalid value": {
-			ObjectMeta: api.ObjectMeta{
-				Name:      "myautoscaler",
-				Namespace: api.NamespaceDefault,
-			},
-			Spec: extensions.HorizontalPodAutoscalerSpec{
-				ScaleRef: &extensions.SubresourceReference{
-					Subresource: "scale",
+		{
+			horizontalPodAutoscaler: extensions.HorizontalPodAutoscaler{
+				ObjectMeta: api.ObjectMeta{
+					Name:      "myautoscaler",
+					Namespace: api.NamespaceDefault,
 				},
-				MinReplicas: 1,
-				MaxReplicas: 5,
-				Target:      extensions.ResourceConsumption{Resource: api.ResourceCPU, Quantity: resource.MustParse("-0.8")},
-			},
-		},
-		"resource not supported": {
-			ObjectMeta: api.ObjectMeta{
-				Name:      "myautoscaler",
-				Namespace: api.NamespaceDefault,
-			},
-			Spec: extensions.HorizontalPodAutoscalerSpec{
-				ScaleRef: &extensions.SubresourceReference{
-					Subresource: "scale",
+				Spec: extensions.HorizontalPodAutoscalerSpec{
+					ScaleRef: extensions.SubresourceReference{
+						Subresource: "scale",
+					},
+					MinReplicas: newInt(7),
+					MaxReplicas: 5,
 				},
-				MinReplicas: 1,
-				MaxReplicas: 5,
-				Target:      extensions.ResourceConsumption{Resource: api.ResourceName("NotSupportedResource"), Quantity: resource.MustParse("0.8")},
 			},
+			msg: "must be bigger or equal to minReplicas",
 		},
-		"required value": {
-			ObjectMeta: api.ObjectMeta{
-				Name:      "myautoscaler",
-				Namespace: api.NamespaceDefault,
+		{
+			horizontalPodAutoscaler: extensions.HorizontalPodAutoscaler{
+				ObjectMeta: api.ObjectMeta{
+					Name:      "myautoscaler",
+					Namespace: api.NamespaceDefault,
+				},
+				Spec: extensions.HorizontalPodAutoscalerSpec{
+					ScaleRef: extensions.SubresourceReference{
+						Subresource: "scale",
+					},
+					MinReplicas:    newInt(1),
+					MaxReplicas:    5,
+					CPUUtilization: &extensions.CPUTargetUtilization{TargetPercentage: -70},
+				},
 			},
-			Spec: extensions.HorizontalPodAutoscalerSpec{
-				MinReplicas: 1,
-				MaxReplicas: 5,
-				Target:      extensions.ResourceConsumption{Resource: api.ResourceCPU, Quantity: resource.MustParse("0.8")},
-			},
+			msg: "must be bigger or equal to 1",
 		},
 	}
 
-	for k, v := range errorCases {
-		errs := ValidateHorizontalPodAutoscaler(&v)
+	for _, c := range errorCases {
+		errs := ValidateHorizontalPodAutoscaler(&c.horizontalPodAutoscaler)
 		if len(errs) == 0 {
-			t.Errorf("expected failure for %s", k)
-		} else if !strings.Contains(errs[0].Error(), k) {
-			t.Errorf("unexpected error: %v, expected: %s", errs[0], k)
+			t.Errorf("expected failure for %s", c.msg)
+		} else if !strings.Contains(errs[0].Error(), c.msg) {
+			t.Errorf("unexpected error: %v, expected: %s", errs[0], c.msg)
 		}
 	}
 }
@@ -192,7 +189,6 @@ func TestValidateDaemonSetStatusUpdate(t *testing.T) {
 			t.Errorf("expected failure: %s", testName)
 		}
 	}
-
 }
 
 func TestValidateDaemonSetUpdate(t *testing.T) {
@@ -725,10 +721,12 @@ func TestValidateDeployment(t *testing.T) {
 }
 
 func TestValidateJob(t *testing.T) {
-	validSelector := map[string]string{"a": "b"}
+	validSelector := &extensions.PodSelector{
+		MatchLabels: map[string]string{"a": "b"},
+	}
 	validPodTemplateSpec := api.PodTemplateSpec{
 		ObjectMeta: api.ObjectMeta{
-			Labels: validSelector,
+			Labels: validSelector.MatchLabels,
 		},
 		Spec: api.PodSpec{
 			RestartPolicy: api.RestartPolicyOnFailure,
@@ -744,7 +742,7 @@ func TestValidateJob(t *testing.T) {
 			},
 			Spec: extensions.JobSpec{
 				Selector: validSelector,
-				Template: &validPodTemplateSpec,
+				Template: validPodTemplateSpec,
 			},
 		},
 	}
@@ -763,7 +761,7 @@ func TestValidateJob(t *testing.T) {
 			Spec: extensions.JobSpec{
 				Parallelism: &negative,
 				Selector:    validSelector,
-				Template:    &validPodTemplateSpec,
+				Template:    validPodTemplateSpec,
 			},
 		},
 		"spec.completions:must be non-negative": {
@@ -774,7 +772,7 @@ func TestValidateJob(t *testing.T) {
 			Spec: extensions.JobSpec{
 				Completions: &negative,
 				Selector:    validSelector,
-				Template:    &validPodTemplateSpec,
+				Template:    validPodTemplateSpec,
 			},
 		},
 		"spec.selector:required value": {
@@ -783,27 +781,17 @@ func TestValidateJob(t *testing.T) {
 				Namespace: api.NamespaceDefault,
 			},
 			Spec: extensions.JobSpec{
-				Selector: map[string]string{},
-				Template: &validPodTemplateSpec,
+				Template: validPodTemplateSpec,
 			},
 		},
-		"spec.template:required value": {
+		"spec.template.metadata.labels: invalid value 'map[y:z]', Details: selector does not match template": {
 			ObjectMeta: api.ObjectMeta{
 				Name:      "myjob",
 				Namespace: api.NamespaceDefault,
 			},
 			Spec: extensions.JobSpec{
 				Selector: validSelector,
-			},
-		},
-		"spec.template.labels:selector does not match template": {
-			ObjectMeta: api.ObjectMeta{
-				Name:      "myjob",
-				Namespace: api.NamespaceDefault,
-			},
-			Spec: extensions.JobSpec{
-				Selector: validSelector,
-				Template: &api.PodTemplateSpec{
+				Template: api.PodTemplateSpec{
 					ObjectMeta: api.ObjectMeta{
 						Labels: map[string]string{"y": "z"},
 					},
@@ -822,9 +810,9 @@ func TestValidateJob(t *testing.T) {
 			},
 			Spec: extensions.JobSpec{
 				Selector: validSelector,
-				Template: &api.PodTemplateSpec{
+				Template: api.PodTemplateSpec{
 					ObjectMeta: api.ObjectMeta{
-						Labels: validSelector,
+						Labels: validSelector.MatchLabels,
 					},
 					Spec: api.PodSpec{
 						RestartPolicy: api.RestartPolicyAlways,
@@ -951,6 +939,98 @@ func TestValidateIngress(t *testing.T) {
 	}
 }
 
+func TestValidateIngressStatusUpdate(t *testing.T) {
+	defaultBackend := extensions.IngressBackend{
+		ServiceName: "default-backend",
+		ServicePort: util.IntOrString{Kind: util.IntstrInt, IntVal: 80},
+	}
+
+	newValid := func() extensions.Ingress {
+		return extensions.Ingress{
+			ObjectMeta: api.ObjectMeta{
+				Name:            "foo",
+				Namespace:       api.NamespaceDefault,
+				ResourceVersion: "9",
+			},
+			Spec: extensions.IngressSpec{
+				Backend: &extensions.IngressBackend{
+					ServiceName: "default-backend",
+					ServicePort: util.IntOrString{Kind: util.IntstrInt, IntVal: 80},
+				},
+				Rules: []extensions.IngressRule{
+					{
+						Host: "foo.bar.com",
+						IngressRuleValue: extensions.IngressRuleValue{
+							HTTP: &extensions.HTTPIngressRuleValue{
+								Paths: []extensions.HTTPIngressPath{
+									{
+										Path:    "/foo",
+										Backend: defaultBackend,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Status: extensions.IngressStatus{
+				LoadBalancer: api.LoadBalancerStatus{
+					Ingress: []api.LoadBalancerIngress{
+						{IP: "127.0.0.1", Hostname: "foo.bar.com"},
+					},
+				},
+			},
+		}
+	}
+	oldValue := newValid()
+	newValue := newValid()
+	newValue.Status = extensions.IngressStatus{
+		LoadBalancer: api.LoadBalancerStatus{
+			Ingress: []api.LoadBalancerIngress{
+				{IP: "127.0.0.2", Hostname: "foo.com"},
+			},
+		},
+	}
+	invalidIP := newValid()
+	invalidIP.Status = extensions.IngressStatus{
+		LoadBalancer: api.LoadBalancerStatus{
+			Ingress: []api.LoadBalancerIngress{
+				{IP: "abcd", Hostname: "foo.com"},
+			},
+		},
+	}
+	invalidHostname := newValid()
+	invalidHostname.Status = extensions.IngressStatus{
+		LoadBalancer: api.LoadBalancerStatus{
+			Ingress: []api.LoadBalancerIngress{
+				{IP: "127.0.0.1", Hostname: "127.0.0.1"},
+			},
+		},
+	}
+
+	errs := ValidateIngressStatusUpdate(&newValue, &oldValue)
+	if len(errs) != 0 {
+		t.Errorf("Unexpected error %v", errs)
+	}
+
+	errorCases := map[string]extensions.Ingress{
+		"status.loadBalancer.ingress.ip: invalid value":       invalidIP,
+		"status.loadBalancer.ingress.hostname: invalid value": invalidHostname,
+	}
+	for k, v := range errorCases {
+		errs := ValidateIngressStatusUpdate(&v, &oldValue)
+		if len(errs) == 0 {
+			t.Errorf("expected failure for %s", k)
+		} else {
+			s := strings.Split(k, ":")
+			err := errs[0].(*errors.ValidationError)
+			if err.Field != s[0] || !strings.Contains(err.Error(), s[1]) {
+				t.Errorf("unexpected error: %v, expected: %s", errs[0], k)
+			}
+		}
+	}
+}
+
 func TestValidateClusterAutoscaler(t *testing.T) {
 	successCases := []extensions.ClusterAutoscaler{
 		{
@@ -1063,4 +1143,10 @@ func TestValidateClusterAutoscaler(t *testing.T) {
 			t.Errorf("unexpected error: %v, expected: %s", errs[0], k)
 		}
 	}
+}
+
+func newInt(val int) *int {
+	p := new(int)
+	*p = val
+	return p
 }

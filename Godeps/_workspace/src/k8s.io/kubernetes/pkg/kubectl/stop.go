@@ -24,6 +24,7 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/meta"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
+	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/util"
 	"k8s.io/kubernetes/pkg/util/wait"
@@ -100,7 +101,7 @@ type objInterface interface {
 
 // getOverlappingControllers finds rcs that this controller overlaps, as well as rcs overlapping this controller.
 func getOverlappingControllers(c client.ReplicationControllerInterface, rc *api.ReplicationController) ([]api.ReplicationController, error) {
-	rcs, err := c.List(labels.Everything())
+	rcs, err := c.List(labels.Everything(), fields.Everything())
 	if err != nil {
 		return nil, fmt.Errorf("error getting replication controllers: %v", err)
 	}
@@ -182,7 +183,7 @@ func (reaper *ReplicationControllerReaper) Stop(namespace, name string, timeout 
 }
 
 func (reaper *DaemonSetReaper) Stop(namespace, name string, timeout time.Duration, gracePeriod *api.DeleteOptions) (string, error) {
-	ds, err := reaper.Experimental().DaemonSets(namespace).Get(name)
+	ds, err := reaper.Extensions().DaemonSets(namespace).Get(name)
 	if err != nil {
 		return "", err
 	}
@@ -197,13 +198,13 @@ func (reaper *DaemonSetReaper) Stop(namespace, name string, timeout time.Duratio
 	// force update to avoid version conflict
 	ds.ResourceVersion = ""
 
-	if ds, err = reaper.Experimental().DaemonSets(namespace).Update(ds); err != nil {
+	if ds, err = reaper.Extensions().DaemonSets(namespace).Update(ds); err != nil {
 		return "", err
 	}
 
 	// Wait for the daemon set controller to kill all the daemon pods.
 	if err := wait.Poll(reaper.pollInterval, reaper.timeout, func() (bool, error) {
-		updatedDS, err := reaper.Experimental().DaemonSets(namespace).Get(name)
+		updatedDS, err := reaper.Extensions().DaemonSets(namespace).Get(name)
 		if err != nil {
 			return false, nil
 		}
@@ -212,14 +213,14 @@ func (reaper *DaemonSetReaper) Stop(namespace, name string, timeout time.Duratio
 		return "", err
 	}
 
-	if err := reaper.Experimental().DaemonSets(namespace).Delete(name); err != nil {
+	if err := reaper.Extensions().DaemonSets(namespace).Delete(name); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s stopped", name), nil
 }
 
 func (reaper *JobReaper) Stop(namespace, name string, timeout time.Duration, gracePeriod *api.DeleteOptions) (string, error) {
-	jobs := reaper.Experimental().Jobs(namespace)
+	jobs := reaper.Extensions().Jobs(namespace)
 	scaler, err := ScalerFor("Job", *reaper)
 	if err != nil {
 		return "", err

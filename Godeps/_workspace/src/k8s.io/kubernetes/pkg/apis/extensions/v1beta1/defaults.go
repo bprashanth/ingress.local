@@ -44,6 +44,19 @@ func addDefaultingFuncs() {
 			}
 		},
 		func(obj *Deployment) {
+			// Default labels and selector to labels from pod template spec.
+			var labels map[string]string
+			if obj.Spec.Template != nil {
+				labels = obj.Spec.Template.Labels
+			}
+			if labels != nil {
+				if len(obj.Spec.Selector) == 0 {
+					obj.Spec.Selector = labels
+				}
+				if len(obj.Labels) == 0 {
+					obj.Labels = labels
+				}
+			}
 			// Set DeploymentSpec.Replicas to 1 if it is not set.
 			if obj.Spec.Replicas == nil {
 				obj.Spec.Replicas = new(int)
@@ -76,14 +89,13 @@ func addDefaultingFuncs() {
 			}
 		},
 		func(obj *Job) {
-			var labels map[string]string
-			if obj.Spec.Template != nil {
-				labels = obj.Spec.Template.Labels
-			}
+			labels := obj.Spec.Template.Labels
 			// TODO: support templates defined elsewhere when we support them in the API
 			if labels != nil {
-				if len(obj.Spec.Selector) == 0 {
-					obj.Spec.Selector = labels
+				if obj.Spec.Selector == nil {
+					obj.Spec.Selector = &PodSelector{
+						MatchLabels: labels,
+					}
 				}
 				if len(obj.Labels) == 0 {
 					obj.Labels = labels
@@ -95,6 +107,15 @@ func addDefaultingFuncs() {
 			}
 			if obj.Spec.Parallelism == nil {
 				obj.Spec.Parallelism = obj.Spec.Completions
+			}
+		},
+		func(obj *HorizontalPodAutoscaler) {
+			if obj.Spec.MinReplicas == nil {
+				minReplicas := 1
+				obj.Spec.MinReplicas = &minReplicas
+			}
+			if obj.Spec.CPUUtilization == nil {
+				obj.Spec.CPUUtilization = &CPUTargetUtilization{TargetPercentage: 80}
 			}
 		},
 	)

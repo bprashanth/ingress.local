@@ -500,13 +500,6 @@ func formatEndpoints(endpoints *api.Endpoints, ports sets.String) string {
 	return ret
 }
 
-func podHostString(host, ip string) string {
-	if host == "" && ip == "" {
-		return "<unassigned>"
-	}
-	return host + "/" + ip
-}
-
 func shortHumanDuration(d time.Duration) string {
 	// Allow deviation no more than 2 seconds(excluded) to tolerate machine time
 	// inconsistence, it can be considered as almost now.
@@ -736,11 +729,13 @@ func printJob(job *extensions.Job, w io.Writer, withNamespace bool, wide bool, s
 			return err
 		}
 	}
+
+	selector, _ := extensions.PodSelectorAsSelector(job.Spec.Selector)
 	_, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\n",
 		name,
 		firstContainer.Name,
 		firstContainer.Image,
-		labels.FormatLabels(job.Spec.Selector),
+		selector.String(),
 		job.Status.Succeeded)
 	if err != nil {
 		return err
@@ -1386,13 +1381,18 @@ func printHorizontalPodAutoscaler(hpa *extensions.HorizontalPodAutoscaler, w io.
 		hpa.Spec.ScaleRef.Namespace,
 		hpa.Spec.ScaleRef.Name,
 		hpa.Spec.ScaleRef.Subresource)
-	target := fmt.Sprintf("%s %v", hpa.Spec.Target.Quantity.String(), hpa.Spec.Target.Resource)
-
-	current := "<waiting>"
-	if hpa.Status.CurrentConsumption != nil {
-		current = fmt.Sprintf("%s %v", hpa.Status.CurrentConsumption.Quantity.String(), hpa.Status.CurrentConsumption.Resource)
+	target := "<unset>"
+	if hpa.Spec.CPUUtilization != nil {
+		target = fmt.Sprintf("%d%%", hpa.Spec.CPUUtilization.TargetPercentage)
 	}
-	minPods := hpa.Spec.MinReplicas
+	current := "<waiting>"
+	if hpa.Status.CurrentCPUUtilizationPercentage != nil {
+		current = fmt.Sprintf("%d%%", *hpa.Status.CurrentCPUUtilizationPercentage)
+	}
+	minPods := "<unset>"
+	if hpa.Spec.MinReplicas != nil {
+		minPods = fmt.Sprintf("%d", *hpa.Spec.MinReplicas)
+	}
 	maxPods := hpa.Spec.MaxReplicas
 	if withNamespace {
 		if _, err := fmt.Fprintf(w, "%s\t", namespace); err != nil {
@@ -1400,7 +1400,7 @@ func printHorizontalPodAutoscaler(hpa *extensions.HorizontalPodAutoscaler, w io.
 		}
 	}
 
-	if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%s",
+	if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s",
 		name,
 		reference,
 		target,
@@ -1475,10 +1475,19 @@ func formatWideHeaders(wide bool, t reflect.Type) []string {
 	return nil
 }
 
+// GetNewTabWriter returns a tabwriter that translates tabbed columns in input into properly aligned text.
+func GetNewTabWriter(output io.Writer) *tabwriter.Writer {
+	return tabwriter.NewWriter(output, tabwriterMinWidth, tabwriterWidth, tabwriterPadding, tabwriterPadChar, tabwriterFlags)
+}
+
 // PrintObj prints the obj in a human-friendly format according to the type of the obj.
 func (h *HumanReadablePrinter) PrintObj(obj runtime.Object, output io.Writer) error {
-	w := tabwriter.NewWriter(output, tabwriterMinWidth, tabwriterWidth, tabwriterPadding, tabwriterPadChar, tabwriterFlags)
-	defer w.Flush()
+	// if output is a tabwriter (when it's called by kubectl get), we use it; create a new tabwriter otherwise
+	w, found := output.(*tabwriter.Writer)
+	if !found {
+		w = GetNewTabWriter(output)
+		defer w.Flush()
+	}
 	t := reflect.TypeOf(obj)
 	if handler := h.handlerMap[t]; handler != nil {
 		if !h.noHeaders && t != h.lastType {

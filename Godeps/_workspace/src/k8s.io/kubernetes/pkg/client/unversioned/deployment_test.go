@@ -124,6 +124,27 @@ func TestDeploymentUpdate(t *testing.T) {
 	c.Validate(t, response, err)
 }
 
+func TestDeploymentUpdateStatus(t *testing.T) {
+	ns := api.NamespaceDefault
+	deployment := &extensions.Deployment{
+		ObjectMeta: api.ObjectMeta{
+			Name:            "abc",
+			Namespace:       ns,
+			ResourceVersion: "1",
+		},
+	}
+	c := &testClient{
+		Request: testRequest{
+			Method: "PUT",
+			Path:   testapi.Extensions.ResourcePath(getDeploymentsResoureName(), ns, "abc") + "/status",
+			Query:  buildQueryValues(nil),
+		},
+		Response: Response{StatusCode: 200, Body: deployment},
+	}
+	response, err := c.Setup(t).Deployments(ns).UpdateStatus(deployment)
+	c.Validate(t, response, err)
+}
+
 func TestDeploymentDelete(t *testing.T) {
 	ns := api.NamespaceDefault
 	c := &testClient{
@@ -147,6 +168,6 @@ func TestDeploymentWatch(t *testing.T) {
 		},
 		Response: Response{StatusCode: 200},
 	}
-	_, err := c.Setup(t).Deployments(api.NamespaceAll).Watch(labels.Everything(), fields.Everything(), "")
+	_, err := c.Setup(t).Deployments(api.NamespaceAll).Watch(labels.Everything(), fields.Everything(), api.ListOptions{})
 	c.Validate(t, nil, err)
 }

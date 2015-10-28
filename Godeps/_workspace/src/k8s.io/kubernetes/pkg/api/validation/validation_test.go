@@ -191,10 +191,10 @@ func TestValidateAnnotations(t *testing.T) {
 		{"1234/5678": "bar"},
 		{"1.2.3.4/5678": "bar"},
 		{"UpperCase123": "bar"},
-		{"a": strings.Repeat("b", (64*1024)-1)},
+		{"a": strings.Repeat("b", totalAnnotationSizeLimitB-1)},
 		{
-			"a": strings.Repeat("b", (32*1024)-1),
-			"c": strings.Repeat("d", (32*1024)-1),
+			"a": strings.Repeat("b", totalAnnotationSizeLimitB/2-1),
+			"c": strings.Repeat("d", totalAnnotationSizeLimitB/2-1),
 		},
 	}
 	for i := range successCases {
@@ -221,10 +221,10 @@ func TestValidateAnnotations(t *testing.T) {
 		}
 	}
 	totalSizeErrorCases := []map[string]string{
-		{"a": strings.Repeat("b", 64*1024)},
+		{"a": strings.Repeat("b", totalAnnotationSizeLimitB)},
 		{
-			"a": strings.Repeat("b", 32*1024),
-			"c": strings.Repeat("d", 32*1024),
+			"a": strings.Repeat("b", totalAnnotationSizeLimitB/2),
+			"c": strings.Repeat("d", totalAnnotationSizeLimitB/2),
 		},
 	}
 	for i := range totalSizeErrorCases {
@@ -607,16 +607,16 @@ func TestValidatePorts(t *testing.T) {
 		F string
 		D string
 	}{
-		"name > 15 characters":                     {[]api.ContainerPort{{Name: strings.Repeat("a", 16), ContainerPort: 80, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].name", portNameErrorMsg},
-		"name not a IANA svc name ":                {[]api.ContainerPort{{Name: "a.b.c", ContainerPort: 80, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].name", portNameErrorMsg},
-		"name not a IANA svc name (i.e. a number)": {[]api.ContainerPort{{Name: "80", ContainerPort: 80, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].name", portNameErrorMsg},
+		"name > 15 characters":                     {[]api.ContainerPort{{Name: strings.Repeat("a", 16), ContainerPort: 80, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].name", PortNameErrorMsg},
+		"name not a IANA svc name ":                {[]api.ContainerPort{{Name: "a.b.c", ContainerPort: 80, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].name", PortNameErrorMsg},
+		"name not a IANA svc name (i.e. a number)": {[]api.ContainerPort{{Name: "80", ContainerPort: 80, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].name", PortNameErrorMsg},
 		"name not unique": {[]api.ContainerPort{
 			{Name: "abc", ContainerPort: 80, Protocol: "TCP"},
 			{Name: "abc", ContainerPort: 81, Protocol: "TCP"},
 		}, errors.ValidationErrorTypeDuplicate, "[1].name", ""},
-		"zero container port":    {[]api.ContainerPort{{ContainerPort: 0, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].containerPort", portRangeErrorMsg},
-		"invalid container port": {[]api.ContainerPort{{ContainerPort: 65536, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].containerPort", portRangeErrorMsg},
-		"invalid host port":      {[]api.ContainerPort{{ContainerPort: 80, HostPort: 65536, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].hostPort", portRangeErrorMsg},
+		"zero container port":    {[]api.ContainerPort{{ContainerPort: 0, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].containerPort", PortRangeErrorMsg},
+		"invalid container port": {[]api.ContainerPort{{ContainerPort: 65536, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].containerPort", PortRangeErrorMsg},
+		"invalid host port":      {[]api.ContainerPort{{ContainerPort: 80, HostPort: 65536, Protocol: "TCP"}}, errors.ValidationErrorTypeInvalid, "[0].hostPort", PortRangeErrorMsg},
 		"invalid protocol case":  {[]api.ContainerPort{{ContainerPort: 80, Protocol: "tcp"}}, errors.ValidationErrorTypeNotSupported, "[0].protocol", "supported values: TCP, UDP"},
 		"invalid protocol":       {[]api.ContainerPort{{ContainerPort: 80, Protocol: "ICMP"}}, errors.ValidationErrorTypeNotSupported, "[0].protocol", "supported values: TCP, UDP"},
 		"protocol required":      {[]api.ContainerPort{{Name: "abc", ContainerPort: 80}}, errors.ValidationErrorTypeRequired, "[0].protocol", ""},
@@ -3244,6 +3244,21 @@ func TestValidateResourceQuota(t *testing.T) {
 		},
 	}
 
+	fractionalComputeSpec := api.ResourceQuotaSpec{
+		Hard: api.ResourceList{
+			api.ResourceCPU: resource.MustParse("100m"),
+		},
+	}
+
+	fractionalPodSpec := api.ResourceQuotaSpec{
+		Hard: api.ResourceList{
+			api.ResourcePods:                   resource.MustParse(".1"),
+			api.ResourceServices:               resource.MustParse(".5"),
+			api.ResourceReplicationControllers: resource.MustParse("1.25"),
+			api.ResourceQuotas:                 resource.MustParse("2.5"),
+		},
+	}
+
 	successCases := []api.ResourceQuota{
 		{
 			ObjectMeta: api.ObjectMeta{
@@ -3251,6 +3266,13 @@ func TestValidateResourceQuota(t *testing.T) {
 				Namespace: "foo",
 			},
 			Spec: spec,
+		},
+		{
+			ObjectMeta: api.ObjectMeta{
+				Name:      "abc",
+				Namespace: "foo",
+			},
+			Spec: fractionalComputeSpec,
 		},
 	}
 
@@ -3283,6 +3305,10 @@ func TestValidateResourceQuota(t *testing.T) {
 		"negative-limits": {
 			api.ResourceQuota{ObjectMeta: api.ObjectMeta{Name: "abc", Namespace: "foo"}, Spec: negativeSpec},
 			isNegativeErrorMsg,
+		},
+		"fractional-api-resource": {
+			api.ResourceQuota{ObjectMeta: api.ObjectMeta{Name: "abc", Namespace: "foo"}, Spec: fractionalPodSpec},
+			isNotIntegerErrorMsg,
 		},
 	}
 	for k, v := range errorCases {
@@ -3805,7 +3831,7 @@ func TestValidateEndpoints(t *testing.T) {
 				},
 			},
 			errorType:   "FieldValueInvalid",
-			errorDetail: portRangeErrorMsg,
+			errorDetail: PortRangeErrorMsg,
 		},
 		"Invalid protocol": {
 			endpoints: api.Endpoints{
@@ -3843,7 +3869,7 @@ func TestValidateEndpoints(t *testing.T) {
 				},
 			},
 			errorType:   "FieldValueInvalid",
-			errorDetail: portRangeErrorMsg,
+			errorDetail: PortRangeErrorMsg,
 		},
 		"Port missing protocol": {
 			endpoints: api.Endpoints{

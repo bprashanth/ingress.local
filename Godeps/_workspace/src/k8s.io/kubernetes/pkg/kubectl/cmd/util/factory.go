@@ -27,6 +27,7 @@ import (
 	"os/user"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -37,8 +38,10 @@ import (
 	"k8s.io/kubernetes/pkg/api/validation"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
 	"k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
+	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/kubectl"
 	"k8s.io/kubernetes/pkg/kubectl/resource"
+	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/util"
 )
@@ -90,6 +93,10 @@ type Factory struct {
 	Generator func(name string) (kubectl.Generator, bool)
 	// Check whether the kind of resources could be exposed
 	CanBeExposed func(kind string) error
+	// Check whether the kind of resources could be autoscaled
+	CanBeAutoscaled func(kind string) error
+	// AttachablePodForObject returns the pod to which to attach given an object.
+	AttachablePodForObject func(object runtime.Object) (*api.Pod, error)
 }
 
 // NewFactory creates a factory with the default Kubernetes resources defined
@@ -102,10 +109,11 @@ func NewFactory(optionalClientConfig clientcmd.ClientConfig) *Factory {
 	flags.SetNormalizeFunc(util.WarnWordSepNormalizeFunc) // Warn for "_" flags
 
 	generators := map[string]kubectl.Generator{
-		"run/v1":     kubectl.BasicReplicationController{},
-		"run-pod/v1": kubectl.BasicPod{},
-		"service/v1": kubectl.ServiceGeneratorV1{},
-		"service/v2": kubectl.ServiceGeneratorV2{},
+		"run/v1":                          kubectl.BasicReplicationController{},
+		"run-pod/v1":                      kubectl.BasicPod{},
+		"service/v1":                      kubectl.ServiceGeneratorV1{},
+		"service/v2":                      kubectl.ServiceGeneratorV2{},
+		"horizontalpodautoscaler/v1beta1": kubectl.HorizontalPodAutoscalerV1Beta1{},
 	}
 
 	clientConfig := optionalClientConfig
@@ -135,6 +143,9 @@ func NewFactory(optionalClientConfig clientcmd.ClientConfig) *Factory {
 		},
 		RESTClient: func(mapping *meta.RESTMapping) (resource.RESTClient, error) {
 			group, err := api.RESTMapper.GroupForResource(mapping.Resource)
+			if err != nil {
+				return nil, err
+			}
 			client, err := clients.ClientForVersion(mapping.APIVersion)
 			if err != nil {
 				return nil, err
@@ -143,7 +154,7 @@ func NewFactory(optionalClientConfig clientcmd.ClientConfig) *Factory {
 			case "":
 				return client.RESTClient, nil
 			case "extensions":
-				return client.ExperimentalClient.RESTClient, nil
+				return client.ExtensionsClient.RESTClient, nil
 			}
 			return nil, fmt.Errorf("unable to get RESTClient for resource '%s'", mapping.Resource)
 		},
@@ -251,10 +262,52 @@ func NewFactory(optionalClientConfig clientcmd.ClientConfig) *Factory {
 			return generator, ok
 		},
 		CanBeExposed: func(kind string) error {
-			if kind != "ReplicationController" && kind != "Service" && kind != "Pod" {
-				return fmt.Errorf("invalid resource provided: %v, only a replication controller, service or pod is accepted", kind)
+			switch kind {
+			case "ReplicationController", "Service", "Pod":
+				// nothing to do here
+			default:
+				return fmt.Errorf("cannot expose a %s", kind)
 			}
 			return nil
+		},
+		CanBeAutoscaled: func(kind string) error {
+			switch kind {
+			// TODO: support autoscale for deployments
+			case "ReplicationController":
+				// nothing to do here
+			default:
+				return fmt.Errorf("cannot autoscale a %s", kind)
+			}
+			return nil
+		},
+		AttachablePodForObject: func(object runtime.Object) (*api.Pod, error) {
+			client, err := clients.ClientForVersion("")
+			if err != nil {
+				return nil, err
+			}
+			switch t := object.(type) {
+			case *api.ReplicationController:
+				var pods *api.PodList
+				for pods == nil || len(pods.Items) == 0 {
+					var err error
+					if pods, err = client.Pods(t.Namespace).List(labels.SelectorFromSet(t.Spec.Selector), fields.Everything()); err != nil {
+						return nil, err
+					}
+					if len(pods.Items) == 0 {
+						time.Sleep(2 * time.Second)
+					}
+				}
+				pod := &pods.Items[0]
+				return pod, nil
+			case *api.Pod:
+				return t, nil
+			default:
+				_, kind, err := api.Scheme.ObjectVersionAndKind(object)
+				if err != nil {
+					return nil, err
+				}
+				return nil, fmt.Errorf("cannot attach to %s: not implemented", kind)
+			}
 		},
 	}
 }
@@ -407,10 +460,10 @@ func (c *clientSwaggerSchema) ValidateBytes(data []byte) error {
 		return fmt.Errorf("could not find api group for %s: %v", kind, err)
 	}
 	if group == "extensions" {
-		if c.c.ExperimentalClient == nil {
+		if c.c.ExtensionsClient == nil {
 			return errors.New("unable to validate: no experimental client")
 		}
-		return getSchemaAndValidate(c.c.ExperimentalClient.RESTClient, data, "apis/", version, c.cacheDir)
+		return getSchemaAndValidate(c.c.ExtensionsClient.RESTClient, data, "apis/", version, c.cacheDir)
 	}
 	return getSchemaAndValidate(c.c.RESTClient, data, "api", version, c.cacheDir)
 }

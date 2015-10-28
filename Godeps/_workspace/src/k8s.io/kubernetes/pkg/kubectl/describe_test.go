@@ -39,10 +39,6 @@ type describeClient struct {
 	client.Interface
 }
 
-func init() {
-	api.ForTesting_ReferencesAllowBlankSelfLinks = true
-}
-
 func TestDescribePod(t *testing.T) {
 	fake := testclient.NewSimpleFake(&api.Pod{
 		ObjectMeta: api.ObjectMeta{
@@ -206,7 +202,7 @@ func TestDescribeContainers(t *testing.T) {
 			},
 			expectedElements: []string{"test", "State", "Waiting", "Ready", "True", "Restart Count", "7", "Image", "image"},
 		},
-		//env
+		// Env
 		{
 			container: api.Container{Name: "test", Image: "image", Env: []api.EnvVar{{Name: "envname", Value: "xyz"}}},
 			status: api.ContainerStatus{
@@ -215,6 +211,26 @@ func TestDescribeContainers(t *testing.T) {
 				RestartCount: 7,
 			},
 			expectedElements: []string{"test", "State", "Waiting", "Ready", "True", "Restart Count", "7", "Image", "image", "envname", "xyz"},
+		},
+		// Command
+		{
+			container: api.Container{Name: "test", Image: "image", Command: []string{"sleep", "1000"}},
+			status: api.ContainerStatus{
+				Name:         "test",
+				Ready:        true,
+				RestartCount: 7,
+			},
+			expectedElements: []string{"test", "State", "Waiting", "Ready", "True", "Restart Count", "7", "Image", "image", "sleep", "1000"},
+		},
+		// Args
+		{
+			container: api.Container{Name: "test", Image: "image", Args: []string{"time", "1000"}},
+			status: api.ContainerStatus{
+				Name:         "test",
+				Ready:        true,
+				RestartCount: 7,
+			},
+			expectedElements: []string{"test", "State", "Waiting", "Ready", "True", "Restart Count", "7", "Image", "image", "time", "1000"},
 		},
 		// Using limits.
 		{
