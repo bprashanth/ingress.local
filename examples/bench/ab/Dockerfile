@@ -59,6 +59,7 @@ RUN cron
 
 # Bootstrap
 COPY startup.sh /
+COPY vimrc /root/.vimrc
 RUN chown -R www-data:www-data /siteroot; chmod -R 755 /siteroot
 
 ENTRYPOINT ["/startup.sh"]
