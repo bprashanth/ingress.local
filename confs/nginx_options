@@ -1,0 +1,96 @@
+Connection: keepalive:
+    Multiple requests can share a single connection.
+    Default: keepalive is on for HTTP 1.0 and 1.1. timeout 75s.
+    Motivation: Send data without initiating 3 way handshake, dns, tls or hitting slow start.
+
+Discourse on connections and keepalive:
+
+browser                         dns
+whats the ip of foobar.com      132.11.11.12
+(recursive query)
+
+TCP messages:
+browser                         server (132.11.11.12)
+SYN    ------------------->
+       <-------------------     SYN-ACK
+ACK    ------------------->
+GET    ------------------->
+       <-------------------     Response
+FIN    ------------------->
+
+Syscalls:
+browser                         server (132.11.11.12)
+
+                                socket() allocate resources for listening socket
+                                bind(listening socket) associate socket with address 132.11.11.12:80
+                                listen(listening socket, backlog) enqueue all incoming requests upto backlog
+                                accept(listening socket, &client address) get one request from listen queue, create new socket
+gethostbyname(foobar.com)
+socket()
+connect(send socket, address)
+                                accept(listening socket, &client address)
+write(send socket, data)
+                                read(accept socket, data)
+                                write(accept socket, response)
+read(send socket, response)
+shutdown(send socket, how)
+
+Connection close:
+browser                         server
+GET    ------------------->
+       <-------------------     Response
+...
+       <-------------------     Server sends FIN
+                                FIN-WAIT-1 (sends disallowed)
+FIN,ACK ----------------->
+CLOSE-WAIT (receives disallowed)
+        <-----------------      ACK
+CLOSE (sends disallowed)        CLOSE (receives disallowed)
+
+
+Connection reset:
+browser                         server
+GET    ------------------->
+       <-------------------     Response
+...
+                                system restart
+...
+GET    ------------------->
+       <-------------------     RST
+
+Http keepalive connection close:
+browser                         server
+GET    ------------------->
+       <-------------------     Response
+...
+       <-------------------     Server writes Connection: close, with EOF in body
+client reads body till EOF
+client closes connection
+(connection reused)
+
+In go, the last 2 steps can happen anytime even after the server has closed the connection gracefully. The runtime manages a pool of connections, `Connection: close` is recorded as it comes in, after a client has read and closed the response body, the connection is returned to the pool only if the server never sent the EOF body with `Connection: Close`.
+
+
+sendfile:
+    Use the sendfile syscall to copy files directly between fds in kernel.
+    Default: off
+    Motivation: nginx doesn't need to copy static files to userspace before sending them out on the network.
+
+tcp_nopush:
+    Don't immediately push out data, opposite of nodelay.
+    Default: off, only makes sense with sendfile.
+    Motivation: Nagle's small packet problem.
+
+tcp_nodelay:
+    Force a socket to send data it's buffering.
+    Default: 0.2s or 200ms
+    Motivation: Nagle's small packet problem, 40 byte header + 1 byte application data
+    Caveats: TCP really has ~11 checks before deciding to send data. This just flips the Nagle algorithm. The real reason to use it is in combination with tcp_nopush
+        and sendfile, nginx unsets nopush at the end of a request to get the partial segment containing the EOF out asap.
+
+chunked_transfer_encoding:
+    Send data in chunks prefixed by their length.
+    Default: on, explicitly setting content length (eg: 'content-length: X' header) will turn it off.
+    Motivation: To set content-length one needs to buffer entire result before sending. Instead one
+        can write data a line at a time and a zero sized chunk to force close.
+
